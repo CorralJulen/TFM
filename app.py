@@ -5,7 +5,6 @@ from pathlib import Path
 # Agrega el directorio donde está este archivo al path de búsqueda
 sys.path.append(str(Path(__file__).parent.resolve()))
 
-import nucleo as n
 Pantallas por usuario: compras (qué pedir), finanzas (recepciones y pagos), dirección (ahorro de inventario) y
 analista de datos (panel del modelo). Los cálculos están en nucleo.py.
 
