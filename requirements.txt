@@ -5,4 +5,4 @@ scipy
 statsmodels>=0.14
 plotly>=5.20
 requests
-
+nucleo
