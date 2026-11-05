@@ -1,10 +1,23 @@
 """Flejes Especiales · Sistema de soporte a la decisión de compras de bobina de acero (prototipo del TFM, ESIC).
+import sys
+from pathlib import Path
 
+# Agrega el directorio donde está este archivo al path de búsqueda
+sys.path.append(str(Path(__file__).parent.resolve()))
+
+import nucleo as n
 Pantallas por usuario: compras (qué pedir), finanzas (recepciones y pagos), dirección (ahorro de inventario) y
 analista de datos (panel del modelo). Los cálculos están en nucleo.py.
 
 Ejecutar en local:  streamlit run app.py
 """
+import sys
+from pathlib import Path
+
+# Agrega el directorio donde está este archivo al path de búsqueda
+sys.path.append(str(Path(__file__).parent.resolve()))
+
+import nucleo as n
 from datetime import date
 
 import numpy as np
