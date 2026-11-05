@@ -1,0 +1,127 @@
+"""Prepara los datos que lee la aplicación a partir de la extracción del ERP y del INE.
+
+Repite la etapa de transformación del pipeline de la fase 2 (mismas reglas de perímetro y de
+familias) y guarda solo agregados mensuales, de modo que la aplicación no necesita el Excel
+del ERP (37 MB, con datos de proveedores) para funcionar.
+
+Uso (desde la carpeta de la aplicación):
+    python preparar_datos.py --compras "../DATOS/Compras FE - copia.xlsx" --ipri "../DATOS/61524 (2).csv"
+
+Genera en datos/:
+    recepciones_mensuales.csv  toneladas recibidas al mes, total y por familia (ene-2018 al último mes completo)
+    ipri_241.csv               índice de precios industriales del acero (INE, grupo 241, mercado interior)
+    coste_compra.json          coste medio de compra por tonelada de los últimos 12 meses (albaranes)
+    pedidos_pendientes.json    bobina de acero pedida y sin llegar por familia en la fecha de la extracción
+"""
+import argparse
+import json
+import os
+import re
+
+import pandas as pd
+
+INICIO = '2018-01-01'
+REGEX_ALUMINIO = r'EN AW|\bAW[- ]?\d|ALUMIN|\bALU\b|ALUCOPO|\bAA ?\d{4}|COIL AL\b|\bAL AW|CA1100|\bAL 1\d{3}'
+REGLAS_FAMILIA = [   # mismas reglas que en las fases 1 y 2; la primera que coincide gana
+    ('Fleje plastificado', r'PLASTIC|PLASTIF|COPOL|COATED STEEL|ALFABOND|CABLEWRAP|ECCS'),
+    ('Otros', r'TINPLATE|HOJALATA|\bTS ?-?\d{2,3}|\bZE ?\d|E-ZN|ELECTROCINC|INOX|AISI|\bA30\d|X5CRNI|\b1\.4\d{3}|PRELACAD|ESTETIC|EST MAT|SNTS|M940'),
+    ('Galvanizado', r'DX5\d|\bZ ?\d{2,3}\b|\+Z|\bAZ ?\d|S\d{3} ?GD|HX\d{3}|GALVAN|\bGV|ZINC|ZM\d'),
+    ('Carbono y muelle', r'\bC ?\d{2}[SE]?\b|\bCK\d|C67|C45|C75|C60|DD1\d|S235|S355|CALIENTE|DECAP|\bHR\b|MUELLE|51CRV|SPRING|ACC\d'),
+    ('Laminado en frío', r'DC0\d|\bLF|\bHP\b|HP-A|LAMINADO FRIO|LAMINADO EN FRIO|M-A|\bCR\b|FRIO|SPCC|\bHP |HC2\d0'),
+]
+FAMILIAS = ['Laminado en frío', 'Galvanizado', 'Fleje plastificado', 'Otros', 'Carbono y muelle']
+
+
+def familia(texto):
+    for nombre, patron in REGLAS_FAMILIA:
+        if re.search(patron, texto):
+            return nombre
+    return 'Otros'
+
+
+def recepciones(ruta_compras):
+    hojas = ['LineasAlbaranesCompra', 'AlbaranesCompra', 'Productos-Navision', 'Productos-BC']
+    erp = pd.read_excel(ruta_compras, sheet_name=hojas, engine='calamine')
+    nav, bc, cab = erp['Productos-Navision'], erp['Productos-BC'], erp['AlbaranesCompra']
+    grupo = pd.concat([nav[['No_', 'Gen_ Prod_ Posting Group']].set_axis(['No', 'Grupo'], axis=1),
+                       bc[['No', 'Gen_Prod_Posting_Group']].set_axis(['No', 'Grupo'], axis=1)]).drop_duplicates('No', keep='last')
+    alb = (erp['LineasAlbaranesCompra'].rename(columns={'  ': 'Doc'})
+           .merge(cab[['No', 'Posting_Date']].rename(columns={'No': 'Doc'}), on='Doc', how='left')
+           .merge(grupo, on='No', how='left'))
+    alb['Posting_Date'] = pd.to_datetime(alb['Posting_Date'])
+    bob = alb[(alb['Type'] == 'Item') & (alb['Unit_of_Measure_Code'] == 'KG') & (alb['Grupo'] == 'BOBINA')].copy()
+    texto = (' ' + bob['Description'].fillna('') + ' ' + bob['Description_2'].fillna('') + ' '
+             + bob['Quality_No'].fillna('').astype(str) + ' ' + bob['Coating_No'].fillna('').astype(str) + ' ').str.upper()
+    bob = bob[~texto.str.contains(REGEX_ALUMINIO) & (bob['Posting_Date'] >= INICIO)].copy()
+    bob['familia'] = texto[bob.index].map(familia)
+
+    # Último mes completo: el mes del último albarán no se usa si está a medias
+    ult = bob['Posting_Date'].max()
+    corte = (ult.to_period('M') - (0 if ult.normalize() == (ult + pd.offsets.MonthEnd(0)).normalize() else 1)).to_timestamp()
+    bob = bob[bob['Posting_Date'] < corte + pd.offsets.MonthBegin(1)]
+
+    meses = pd.date_range(INICIO, corte, freq='MS')
+    tabla = (bob.pivot_table(index=pd.Grouper(key='Posting_Date', freq='MS'), columns='familia',
+                             values='Quantity', aggfunc='sum').reindex(meses).fillna(0) / 1000)
+    tabla = tabla.reindex(columns=FAMILIAS, fill_value=0.0)
+    tabla.insert(0, 'Total', tabla.sum(axis=1))
+    tabla.index.name = 'mes'
+
+    # Coste medio de compra de los últimos 12 meses (Unit_Cost es €/kg)
+    ult12 = bob[bob['Posting_Date'] >= corte - pd.DateOffset(months=11)]
+    ult12 = ult12[ult12['Unit_Cost'] > 0]
+    coste = {
+        'periodo': f"{(corte - pd.DateOffset(months=11)):%Y-%m} a {corte:%Y-%m}",
+        'total_eur_t': round(float((ult12['Quantity'] * ult12['Unit_Cost']).sum() / ult12['Quantity'].sum() * 1000), 0),
+        'por_familia_eur_t': {f: round(float((g['Quantity'] * g['Unit_Cost']).sum() / g['Quantity'].sum() * 1000), 0)
+                              for f, g in ult12.groupby('familia')},
+    }
+    return tabla, coste
+
+
+def pendientes(ruta_compras):
+    """Lo pedido y aún no recibido en cada línea de pedido abierta (cantidad − cantidad recibida)."""
+    lp = pd.read_excel(ruta_compras, sheet_name='LineasPedidoCompra', engine='calamine')
+    cab = pd.read_excel(ruta_compras, sheet_name='AlbaranesCompra', engine='calamine', usecols=['Posting_Date'])
+    foto = pd.to_datetime(cab['Posting_Date']).max()     # último albarán registrado = fecha de la extracción
+    b = lp[(lp['Type'] == 'Item') & (lp['Unit_of_Measure_Code'] == 'KG') & (lp['Gen_Prod_Posting_Group'] == 'BOBINA')].copy()
+    texto = (' ' + b['Description'].fillna('') + ' ' + b['Description_2'].fillna('') + ' '
+             + b['Quality_No'].fillna('').astype(str) + ' ' + b['Coating_No'].fillna('').astype(str) + ' ').str.upper()
+    b = b[~texto.str.contains(REGEX_ALUMINIO)].copy()
+    b['familia'] = texto[b.index].map(familia)
+    b['pendiente'] = (b['Quantity'] - b['Quantity_Received']) / 1000
+    b = b[b['pendiente'] > 0]
+    b['prevista'] = pd.to_datetime(b['Expected_Receipt_Date'], errors='coerce')
+    atrasado = b['prevista'] < foto.normalize()
+    por_fam = {f: round(float(b.loc[b['familia'] == f, 'pendiente'].sum()), 1) for f in FAMILIAS}
+    atr_fam = {f: round(float(b.loc[(b['familia'] == f) & atrasado, 'pendiente'].sum()), 1) for f in FAMILIAS}
+    return {'fecha_foto': f'{foto:%Y-%m-%d}', 'lineas': int(len(b)), 'pedidos': int(b['Document_No'].nunique()),
+            'pendiente_t': por_fam, 'atrasado_t': atr_fam,
+            'fecha_prevista': [f"{b['prevista'].min():%Y-%m-%d}", f"{b['prevista'].max():%Y-%m-%d}"]}
+
+
+def ipri(ruta_csv):
+    df = pd.read_csv(ruta_csv, sep=';', decimal=',', encoding='latin-1')
+    df.columns = ['serie', 'tipo', 'periodo', 'valor']
+    df['mes'] = pd.to_datetime(df['periodo'].str.replace('M', '-') + '-01')
+    return df.set_index('mes').sort_index()[['valor']].rename(columns={'valor': 'ipri_241'})
+
+
+if __name__ == '__main__':
+    p = argparse.ArgumentParser()
+    p.add_argument('--compras', required=True)
+    p.add_argument('--ipri', required=True)
+    a = p.parse_args()
+    os.makedirs('datos', exist_ok=True)
+    tabla, coste = recepciones(a.compras)
+    tabla.round(3).to_csv('datos/recepciones_mensuales.csv', date_format='%Y-%m')
+    ipri(a.ipri).to_csv('datos/ipri_241.csv', date_format='%Y-%m')
+    with open('datos/coste_compra.json', 'w', encoding='utf-8') as f:
+        json.dump(coste, f, ensure_ascii=False, indent=2)
+    pend = pendientes(a.compras)
+    with open('datos/pedidos_pendientes.json', 'w', encoding='utf-8') as f:
+        json.dump(pend, f, ensure_ascii=False, indent=2)
+    print(f"Pendiente de recibir a {pend['fecha_foto']}: {sum(pend['pendiente_t'].values()):,.0f} t en {pend['pedidos']} pedidos")
+    print(f"Recepciones: {tabla.index.min():%Y-%m} a {tabla.index.max():%Y-%m} ({len(tabla)} meses), "
+          f"media {tabla['Total'].mean():.1f} t/mes")
+    print('Coste medio de compra:', coste)
