@@ -1,0 +1,52 @@
+{
+  "nombre": "ARIMAX(0,0,0) + precio_l2 + ago_dic",
+  "tipo": "ARIMAX(0, 0, 0)",
+  "variable_objetivo": "Toneladas de bobina de acero recibidas al mes (albaranes, Posting_Date; grupo BOBINA, KG, sin aluminio)",
+  "variables_externas": [
+    "precio_l2",
+    "ago_dic"
+  ],
+  "coeficientes_entrenamiento": {
+    "const": 856.085,
+    "precio_l2": 12.237,
+    "ago_dic": -291.121
+  },
+  "p_valores": {
+    "const": 0.0,
+    "precio_l2": 0.0087,
+    "ago_dic": 0.0015
+  },
+  "r2": 0.169,
+  "metricas": {
+    "cv_total3": 17.52,
+    "cv_total2": 22.34,
+    "cv_mes": 32.85,
+    "test_total3": 8.79,
+    "test_total2": 23.04,
+    "test_mes": 34.29
+  },
+  "referencia_media": {
+    "cv_total3": 20.94,
+    "cv_total2": 26.03,
+    "cv_mes": 35.7,
+    "test_total3": 8.04,
+    "test_total2": 25.74,
+    "test_mes": 43.44
+  },
+  "prevision_familias": "Reparto del total según el peso histórico de cada familia",
+  "pesos_familia": {
+    "Laminado en frío": 0.4823,
+    "Galvanizado": 0.3737,
+    "Fleje plastificado": 0.0623,
+    "Otros (hojalata, inox, electrocincado)": 0.0512,
+    "Carbono / muelle": 0.0305
+  },
+  "datos": {
+    "dataset": "31dfc0be42f9",
+    "inicio": "2018-01-01",
+    "fin_entrenamiento": "2025-09-01",
+    "fin_serie": "2026-03-01",
+    "fuente_ipri": "API INE (IPR37378)",
+    "fuente_ipi": "API INE (IPI14582)"
+  }
+}

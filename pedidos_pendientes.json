@@ -1,0 +1,23 @@
+{
+  "fecha_foto": "2026-04-28",
+  "lineas": 84,
+  "pedidos": 54,
+  "pendiente_t": {
+    "Laminado en frío": 1364.0,
+    "Galvanizado": 1624.9,
+    "Fleje plastificado": 484.0,
+    "Otros": 167.2,
+    "Carbono y muelle": 340.5
+  },
+  "atrasado_t": {
+    "Laminado en frío": 340.4,
+    "Galvanizado": 114.2,
+    "Fleje plastificado": 0.0,
+    "Otros": 0.0,
+    "Carbono y muelle": 32.0
+  },
+  "fecha_prevista": [
+    "2026-02-13",
+    "2026-11-13"
+  ]
+}
