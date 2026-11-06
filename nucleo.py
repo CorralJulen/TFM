@@ -17,7 +17,7 @@ from statsmodels.tsa.statespace.sarimax import SARIMAX
 
 warnings.filterwarnings('ignore')
 BASE = os.path.dirname(os.path.abspath(__file__))
-DATOS = os.path.join(BASE, 'datos')
+DATOS = BASE
 
 FAMILIAS = ['Laminado en frío', 'Galvanizado', 'Fleje plastificado', 'Otros', 'Carbono y muelle']
 FAMILIAS_GRANDES = ['Laminado en frío', 'Galvanizado']   # peso >= 10 %: gestión por previsión
